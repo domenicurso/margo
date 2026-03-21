@@ -1,6 +1,6 @@
 # Margo
 
-Chrome extension that injects a draggable floating citation widget and provides a settings page for citation formatting.
+Automatically generate citations for news articles and academic papers.
 
 ## Build
 
