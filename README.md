@@ -1,6 +1,6 @@
 # Margo
 
-Automatically generate citations for news articles and academic papers.
+Margo, latin for "Margin", is a Chrome extension that automatically generates citations for the websites you visit. Margo lives in the corner of your browser window, providing easy access to citation tools without interrupting your workflow.
 
 ## Build
 
