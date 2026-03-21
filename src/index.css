@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@source "./**/*.{ts,tsx}";
+@source "../static/**/*.html";
+@source inline("border border-solid");
+
+@layer base {
+  *,
+  ::before,
+  ::after,
+  ::backdrop,
+  ::file-selector-button {
+    --tw-border-style: solid;
+  }
+}
+
+@theme inline {
+  --font-sans: "Public Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono:
+    "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+}
+
+body {
+  @apply bg-zinc-950;
+}

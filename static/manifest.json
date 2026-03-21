@@ -1,0 +1,28 @@
+{
+  "manifest_version": 3,
+  "name": "Margo",
+  "version": "0.1.0",
+  "description": "Automatically generate citations for news articles and academic papers",
+  "permissions": ["storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Margo Settings"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["app.css"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
