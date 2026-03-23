@@ -47,6 +47,10 @@ const COLLAPSED_EDGE_GAP = 0;
 const THROW_DISTANCE = 320;
 const THROW_HORIZON_SECONDS = 0.22;
 const VELOCITY_THRESHOLD = 60;
+const EXPANDED_RADIUS = 16;
+const COLLAPSED_RADIUS = 8;
+const PANEL_BORDER_WIDTH = 1;
+const CROSSFADE_DURATION_MS = 220;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -106,6 +110,33 @@ function getPredictedCorner(
   return `${vertical}-${horizontal}` as WidgetCorner;
 }
 
+function getSurfaceShape(
+  collapsed: boolean,
+  widgetSide: "left" | "right",
+) {
+  if (!collapsed) {
+    return {
+      borderTopLeftRadius: EXPANDED_RADIUS,
+      borderTopRightRadius: EXPANDED_RADIUS,
+      borderBottomRightRadius: EXPANDED_RADIUS,
+      borderBottomLeftRadius: EXPANDED_RADIUS,
+      borderLeftWidth: PANEL_BORDER_WIDTH,
+      borderRightWidth: PANEL_BORDER_WIDTH,
+    };
+  }
+
+  const dockedOnLeft = widgetSide === "left";
+
+  return {
+    borderTopLeftRadius: dockedOnLeft ? 0 : COLLAPSED_RADIUS,
+    borderTopRightRadius: dockedOnLeft ? COLLAPSED_RADIUS : 0,
+    borderBottomRightRadius: dockedOnLeft ? COLLAPSED_RADIUS : 0,
+    borderBottomLeftRadius: dockedOnLeft ? 0 : COLLAPSED_RADIUS,
+    borderLeftWidth: dockedOnLeft ? 0 : PANEL_BORDER_WIDTH,
+    borderRightWidth: dockedOnLeft ? PANEL_BORDER_WIDTH : 0,
+  };
+}
+
 function getExtensionStylesheetHref() {
   const extensionApi = globalThis as typeof globalThis & {
     chrome?: {
@@ -116,6 +147,12 @@ function getExtensionStylesheetHref() {
   };
 
   return extensionApi.chrome?.runtime?.getURL("app.css") ?? null;
+}
+
+function easeInOutCubic(value: number) {
+  return value < 0.5
+    ? 4 * value * value * value
+    : 1 - Math.pow(-2 * value + 2, 3) / 2;
 }
 
 function useSpringNumber(initialValue: number) {
@@ -184,6 +221,89 @@ function useSpringNumber(initialValue: number) {
     }
 
     lastTimeRef.current = 0;
+    frameRef.current = window.requestAnimationFrame(step);
+  });
+
+  useEffect(() => {
+    return () => {
+      if (frameRef.current !== null) {
+        window.cancelAnimationFrame(frameRef.current);
+      }
+    };
+  }, []);
+
+  return {
+    value,
+    get: () => valueRef.current,
+    setInstant,
+    animateTo,
+    stop,
+  };
+}
+
+function useTweenNumber(initialValue: number, durationMs = CROSSFADE_DURATION_MS) {
+  const [value, setValue] = useState(initialValue);
+  const valueRef = useRef(initialValue);
+  const startValueRef = useRef(initialValue);
+  const targetRef = useRef(initialValue);
+  const frameRef = useRef<number | null>(null);
+  const startTimeRef = useRef(0);
+
+  const stop = useEffectEvent(() => {
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+  });
+
+  const setInstant = useEffectEvent((nextValue: number) => {
+    stop();
+    targetRef.current = nextValue;
+    startValueRef.current = nextValue;
+    startTimeRef.current = 0;
+    valueRef.current = nextValue;
+    setValue(nextValue);
+  });
+
+  const step = useEffectEvent((time: number) => {
+    if (startTimeRef.current === 0) {
+      startTimeRef.current = time;
+    }
+
+    const progress = clamp((time - startTimeRef.current) / durationMs, 0, 1);
+    const easedProgress = easeInOutCubic(progress);
+    const nextValue =
+      startValueRef.current +
+      (targetRef.current - startValueRef.current) * easedProgress;
+
+    valueRef.current = nextValue;
+    setValue(nextValue);
+
+    if (progress >= 1) {
+      frameRef.current = null;
+      startTimeRef.current = 0;
+      valueRef.current = targetRef.current;
+      setValue(targetRef.current);
+      return;
+    }
+
+    frameRef.current = window.requestAnimationFrame(step);
+  });
+
+  const animateTo = useEffectEvent((nextTarget: number) => {
+    if (Math.abs(valueRef.current - nextTarget) < 0.001) {
+      setInstant(nextTarget);
+      return;
+    }
+
+    targetRef.current = nextTarget;
+    startValueRef.current = valueRef.current;
+    startTimeRef.current = 0;
+
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current);
+    }
+
     frameRef.current = window.requestAnimationFrame(step);
   });
 
@@ -298,7 +418,7 @@ function ExpandedContent(props: {
         >
           <button
             type="button"
-            className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-zinc-200 px-3.5 py-2.5 text-sm font-medium text-zinc-950 hover:bg-zinc-100 hover:border-zinc-100"
+            className="inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-zinc-300 bg-zinc-200 px-3.5 py-2.5 text-sm font-medium text-zinc-950 hover:border-zinc-100 hover:bg-zinc-100"
             onClick={onCopyCitation}
           >
             <CopySimpleIcon size={18} weight="fill" />
@@ -306,6 +426,30 @@ function ExpandedContent(props: {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function CollapsedContent(props: {
+  onStartDrag: (event: ReactPointerEvent) => void;
+  onExpand: () => void;
+  onExpandKeyDown: (event: ReactKeyboardEvent) => void;
+}) {
+  const { onStartDrag, onExpand, onExpandKeyDown } = props;
+
+  return (
+    <div
+      className="grid size-full cursor-grab place-items-center content-center gap-2 px-2 py-3 text-zinc-100 select-none active:cursor-grabbing"
+      role="button"
+      tabIndex={0}
+      onPointerDown={onStartDrag}
+      onClick={onExpand}
+      onKeyDown={onExpandKeyDown}
+    >
+      <QuotesIcon size={18} weight="fill" className="text-zinc-300" />
+      <span className="rotate-180 text-sm font-medium text-zinc-300 [writing-mode:vertical-rl]">
+        Cite
+      </span>
     </div>
   );
 }
@@ -328,6 +472,16 @@ function ContentApp() {
 
   const x = useSpringNumber(0);
   const y = useSpringNumber(0);
+  const surfaceWidth = useSpringNumber(DEFAULT_EXPANDED_SIZE.width);
+  const surfaceHeight = useSpringNumber(DEFAULT_EXPANDED_SIZE.height);
+  const borderTopLeftRadius = useSpringNumber(EXPANDED_RADIUS);
+  const borderTopRightRadius = useSpringNumber(EXPANDED_RADIUS);
+  const borderBottomRightRadius = useSpringNumber(EXPANDED_RADIUS);
+  const borderBottomLeftRadius = useSpringNumber(EXPANDED_RADIUS);
+  const borderLeftWidth = useSpringNumber(PANEL_BORDER_WIDTH);
+  const borderRightWidth = useSpringNumber(PANEL_BORDER_WIDTH);
+  const collapsedOpacity = useTweenNumber(0);
+  const expandedOpacity = useTweenNumber(1);
 
   const [settings, setSettings] = useState<CitationSettings>(DEFAULT_SETTINGS);
   const [widgetState, setWidgetState] =
@@ -401,9 +555,42 @@ function ContentApp() {
     [metadata, settings],
   );
 
-  const getTargetSize = useEffectEvent((collapsed: boolean) => {
+  const getTargetSize = (collapsed: boolean) => {
     return collapsed ? COLLAPSED_SIZE : expandedSize;
-  });
+  };
+
+  const syncSurfaceVisualState = useEffectEvent(
+    (nextState: WidgetState, mode: "instant" | "animate") => {
+      const targetSize = getTargetSize(nextState.collapsed);
+      const nextSide = nextState.corner.endsWith("left") ? "left" : "right";
+      const nextShape = getSurfaceShape(nextState.collapsed, nextSide);
+
+      if (mode === "instant") {
+        surfaceWidth.setInstant(targetSize.width);
+        surfaceHeight.setInstant(targetSize.height);
+        borderTopLeftRadius.setInstant(nextShape.borderTopLeftRadius);
+        borderTopRightRadius.setInstant(nextShape.borderTopRightRadius);
+        borderBottomRightRadius.setInstant(nextShape.borderBottomRightRadius);
+        borderBottomLeftRadius.setInstant(nextShape.borderBottomLeftRadius);
+        borderLeftWidth.setInstant(nextShape.borderLeftWidth);
+        borderRightWidth.setInstant(nextShape.borderRightWidth);
+        collapsedOpacity.setInstant(nextState.collapsed ? 1 : 0);
+        expandedOpacity.setInstant(nextState.collapsed ? 0 : 1);
+        return;
+      }
+
+      surfaceWidth.animateTo(targetSize.width);
+      surfaceHeight.animateTo(targetSize.height);
+      borderTopLeftRadius.animateTo(nextShape.borderTopLeftRadius);
+      borderTopRightRadius.animateTo(nextShape.borderTopRightRadius);
+      borderBottomRightRadius.animateTo(nextShape.borderBottomRightRadius);
+      borderBottomLeftRadius.animateTo(nextShape.borderBottomLeftRadius);
+      borderLeftWidth.animateTo(nextShape.borderLeftWidth);
+      borderRightWidth.animateTo(nextShape.borderRightWidth);
+      collapsedOpacity.animateTo(nextState.collapsed ? 1 : 0);
+      expandedOpacity.animateTo(nextState.collapsed ? 0 : 1);
+    },
+  );
 
   const transitionToState = useEffectEvent(
     (nextState: WidgetState, rect?: DOMRect) => {
@@ -412,6 +599,7 @@ function ContentApp() {
       const currentRect = rect ?? panelRef.current?.getBoundingClientRect();
       if (!currentRect) {
         setWidgetState(nextState);
+        syncSurfaceVisualState(nextState, "instant");
         x.setInstant(0);
         y.setInstant(0);
         void saveWidgetState(nextState);
@@ -427,6 +615,7 @@ function ContentApp() {
       x.setInstant(currentRect.left - targetAnchor.left);
       y.setInstant(currentRect.top - targetAnchor.top);
       setWidgetState(nextState);
+      syncSurfaceVisualState(nextState, "animate");
 
       window.requestAnimationFrame(() => {
         x.animateTo(0);
@@ -572,6 +761,7 @@ function ContentApp() {
         setMetadata(extractPageMetadata());
         x.setInstant(0);
         y.setInstant(0);
+        syncSurfaceVisualState(storedWidgetState, "instant");
         setReady(true);
       },
     );
@@ -596,6 +786,7 @@ function ContentApp() {
       }
 
       setWidgetState(nextWidgetState);
+      syncSurfaceVisualState(nextWidgetState, "animate");
       if (!isDraggingRef.current) {
         x.setInstant(0);
         y.setInstant(0);
@@ -608,6 +799,14 @@ function ContentApp() {
       stopWidgetListener();
     };
   }, []);
+
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+
+    syncSurfaceVisualState(widgetState, "animate");
+  }, [expandedSize, ready, widgetState]);
 
   useEffect(() => {
     if (!ready) {
@@ -640,7 +839,7 @@ function ContentApp() {
     return () => window.clearTimeout(timeoutId);
   }, [copied]);
 
-  const surfaceSize = widgetState.collapsed ? COLLAPSED_SIZE : expandedSize;
+  const surfaceSize = getTargetSize(widgetState.collapsed);
   const anchorPosition = getAnchorPosition(
     widgetState.corner,
     surfaceSize,
@@ -660,9 +859,35 @@ function ContentApp() {
   };
 
   const surfaceStyle = {
-    width: surfaceSize.width,
-    height: surfaceSize.height,
+    width: surfaceWidth.value,
+    height: surfaceHeight.value,
+    borderTopLeftRadius: borderTopLeftRadius.value,
+    borderTopRightRadius: borderTopRightRadius.value,
+    borderBottomRightRadius: borderBottomRightRadius.value,
+    borderBottomLeftRadius: borderBottomLeftRadius.value,
+    borderTopWidth: PANEL_BORDER_WIDTH,
+    borderRightWidth: borderRightWidth.value,
+    borderBottomWidth: PANEL_BORDER_WIDTH,
+    borderLeftWidth: borderLeftWidth.value,
   };
+  const collapsedLayerStyle = {
+    width: COLLAPSED_SIZE.width,
+    height: COLLAPSED_SIZE.height,
+    left:
+      widgetSide === "left"
+        ? 0
+        : Math.max(0, surfaceWidth.value - COLLAPSED_SIZE.width),
+    opacity: clamp(collapsedOpacity.value, 0, 1),
+    pointerEvents: widgetState.collapsed ? "auto" : "none",
+    zIndex: widgetState.collapsed ? 1 : 0,
+  } satisfies React.CSSProperties;
+  const expandedLayerStyle = {
+    width: expandedSize.width,
+    height: expandedSize.height,
+    opacity: clamp(expandedOpacity.value, 0, 1),
+    pointerEvents: widgetState.collapsed ? "none" : "auto",
+    zIndex: widgetState.collapsed ? 0 : 1,
+  } satisfies React.CSSProperties;
 
   const blockDragStart = (event: ReactPointerEvent) => {
     event.stopPropagation();
@@ -694,34 +919,19 @@ function ContentApp() {
         <div
           ref={panelRef}
           className={cn(
-            "pointer-events-auto flex flex-col border border-zinc-800 bg-zinc-900",
-            "transition-[width,height,border-radius,box-shadow,opacity] duration-300 ease-[cubic-bezier(0.19,1,0.22,1)]",
-            widgetState.collapsed ? "overflow-visible" : "overflow-hidden",
-            widgetState.collapsed && widgetSide === "left"
-              ? "rounded-l-none rounded-r-lg border-l-0"
-              : "",
-            widgetState.collapsed && widgetSide === "right"
-              ? "rounded-l-lg rounded-r-none border-r-0"
-              : "",
-            !widgetState.collapsed ? "rounded-2xl" : "",
+            "pointer-events-auto relative flex flex-col overflow-hidden border border-zinc-800 bg-zinc-900",
           )}
           style={surfaceStyle}
         >
-          {widgetState.collapsed ? (
-            <div
-              className="grid size-full cursor-grab place-items-center content-center gap-2 px-2 py-3 text-zinc-100 select-none active:cursor-grabbing"
-              role="button"
-              tabIndex={0}
-              onPointerDown={startDragging}
-              onClick={handleExpand}
-              onKeyDown={handleExpandKeyDown}
-            >
-              <QuotesIcon size={18} weight="fill" className="text-zinc-300" />
-              <span className="rotate-180 text-sm font-medium text-zinc-300 [writing-mode:vertical-rl]">
-                Cite
-              </span>
-            </div>
-          ) : (
+          <div className="absolute top-0" aria-hidden={!widgetState.collapsed} style={collapsedLayerStyle}>
+            <CollapsedContent
+              onStartDrag={startDragging}
+              onExpand={handleExpand}
+              onExpandKeyDown={handleExpandKeyDown}
+            />
+          </div>
+
+          <div className="absolute top-0 left-0" aria-hidden={widgetState.collapsed} style={expandedLayerStyle}>
             <ExpandedContent
               metadata={metadata}
               citation={citation}
@@ -737,7 +947,7 @@ function ContentApp() {
               onRefresh={() => refreshMetadata()}
               blockDragStart={blockDragStart}
             />
-          )}
+          </div>
         </div>
       </div>
 
