@@ -46,11 +46,14 @@ const EDGE_GAP = 8;
 const COLLAPSED_EDGE_GAP = 0;
 const THROW_DISTANCE = 320;
 const THROW_HORIZON_SECONDS = 0.22;
-const VELOCITY_THRESHOLD = 60;
+const VELOCITY_SAMPLE_MS = 120;
+const MAX_DRAG_SAMPLES = 8;
 const EXPANDED_RADIUS = 16;
 const COLLAPSED_RADIUS = 8;
 const PANEL_BORDER_WIDTH = 1;
 const CROSSFADE_DURATION_MS = 220;
+const EXPANDED_OFFSCREEN_COLLAPSE_RATIO = 0.35;
+const EXPANDED_OFFSCREEN_COLLAPSE_MAX_PX = 120;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
@@ -96,18 +99,60 @@ function getPredictedCorner(
   velocity: { x: number; y: number },
   viewport: { width: number; height: number },
 ) {
-  const projectedCenterX =
-    rect.left +
-    rect.width / 2 +
-    clamp(velocity.x * THROW_HORIZON_SECONDS, -THROW_DISTANCE, THROW_DISTANCE);
-  const projectedCenterY =
-    rect.top +
-    rect.height / 2 +
-    clamp(velocity.y * THROW_HORIZON_SECONDS, -THROW_DISTANCE, THROW_DISTANCE);
+  const projectedRect = getProjectedRect(rect, velocity);
+  const projectedCenterX = projectedRect.left + projectedRect.width / 2;
+  const projectedCenterY = projectedRect.top + projectedRect.height / 2;
 
   const horizontal = projectedCenterX < viewport.width / 2 ? "left" : "right";
   const vertical = projectedCenterY < viewport.height / 2 ? "top" : "bottom";
   return `${vertical}-${horizontal}` as WidgetCorner;
+}
+
+function getProjectedRect(rect: DOMRect, velocity: { x: number; y: number }) {
+  const offsetX = clamp(
+    velocity.x * THROW_HORIZON_SECONDS,
+    -THROW_DISTANCE,
+    THROW_DISTANCE,
+  );
+  const offsetY = clamp(
+    velocity.y * THROW_HORIZON_SECONDS,
+    -THROW_DISTANCE,
+    THROW_DISTANCE,
+  );
+
+  return {
+    left: rect.left + offsetX,
+    top: rect.top + offsetY,
+    right: rect.right + offsetX,
+    bottom: rect.bottom + offsetY,
+    width: rect.width,
+    height: rect.height,
+  };
+}
+
+function shouldCollapseExpandedOnRelease(
+  rect: ReturnType<typeof getProjectedRect>,
+  viewport: { width: number; height: number },
+) {
+  const overflowLeft = Math.max(0, -rect.left);
+  const overflowTop = Math.max(0, -rect.top);
+  const overflowRight = Math.max(0, rect.right - viewport.width);
+  const overflowBottom = Math.max(0, rect.bottom - viewport.height);
+  const horizontalThreshold = Math.min(
+    EXPANDED_OFFSCREEN_COLLAPSE_MAX_PX,
+    rect.width * EXPANDED_OFFSCREEN_COLLAPSE_RATIO,
+  );
+  const verticalThreshold = Math.min(
+    EXPANDED_OFFSCREEN_COLLAPSE_MAX_PX,
+    rect.height * EXPANDED_OFFSCREEN_COLLAPSE_RATIO,
+  );
+
+  return (
+    overflowLeft >= horizontalThreshold ||
+    overflowRight >= horizontalThreshold ||
+    overflowTop >= verticalThreshold ||
+    overflowBottom >= verticalThreshold
+  );
 }
 
 function getSurfaceShape(
@@ -649,8 +694,14 @@ function ContentApp() {
       return;
     }
 
-    const firstSample = dragState.samples[0];
-    const lastSample = dragState.samples[dragState.samples.length - 1];
+    const now = performance.now();
+    const recentSamples = dragState.samples.filter(
+      (sample) => now - sample.time <= VELOCITY_SAMPLE_MS,
+    );
+    const firstSample = recentSamples[0] ?? dragState.samples[0];
+    const lastSample =
+      recentSamples[recentSamples.length - 1] ??
+      dragState.samples[dragState.samples.length - 1];
     const velocity =
       firstSample && lastSample
         ? {
@@ -665,16 +716,16 @@ function ContentApp() {
           }
         : { x: 0, y: 0 };
 
-    const nextCorner =
-      Math.abs(velocity.x) > VELOCITY_THRESHOLD ||
-      Math.abs(velocity.y) > VELOCITY_THRESHOLD
-        ? getPredictedCorner(rect, velocity, viewport)
-        : getCornerFromRect(rect, viewport);
+    const projectedRect = getProjectedRect(rect, velocity);
+    const nextCorner = getPredictedCorner(rect, velocity, viewport);
+    const shouldCollapse =
+      !widgetStateRef.current.collapsed &&
+      shouldCollapseExpandedOnRelease(projectedRect, viewport);
 
     transitionToState(
       {
         corner: nextCorner,
-        collapsed: widgetStateRef.current.collapsed,
+        collapsed: shouldCollapse ? true : widgetStateRef.current.collapsed,
       },
       rect,
     );
@@ -699,13 +750,21 @@ function ContentApp() {
       suppressClickRef.current = true;
     }
 
+    const now = performance.now();
     dragState.samples.push({
       x: event.clientX,
       y: event.clientY,
-      time: performance.now(),
+      time: now,
     });
 
-    if (dragState.samples.length > 5) {
+    while (
+      dragState.samples.length > 1 &&
+      now - dragState.samples[0].time > VELOCITY_SAMPLE_MS
+    ) {
+      dragState.samples.shift();
+    }
+
+    if (dragState.samples.length > MAX_DRAG_SAMPLES) {
       dragState.samples.shift();
     }
   });
