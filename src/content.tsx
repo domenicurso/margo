@@ -83,17 +83,6 @@ function getAnchorPosition(
   };
 }
 
-function getCornerFromRect(
-  rect: DOMRect,
-  viewport: { width: number; height: number },
-): WidgetCorner {
-  const horizontal =
-    rect.left + rect.width / 2 < viewport.width / 2 ? "left" : "right";
-  const vertical =
-    rect.top + rect.height / 2 < viewport.height / 2 ? "top" : "bottom";
-  return `${vertical}-${horizontal}` as WidgetCorner;
-}
-
 function getPredictedCorner(
   rect: DOMRect,
   velocity: { x: number; y: number },
@@ -155,10 +144,7 @@ function shouldCollapseExpandedOnRelease(
   );
 }
 
-function getSurfaceShape(
-  collapsed: boolean,
-  widgetSide: "left" | "right",
-) {
+function getSurfaceShape(collapsed: boolean, widgetSide: "left" | "right") {
   if (!collapsed) {
     return {
       borderTopLeftRadius: EXPANDED_RADIUS,
@@ -286,7 +272,10 @@ function useSpringNumber(initialValue: number) {
   };
 }
 
-function useTweenNumber(initialValue: number, durationMs = CROSSFADE_DURATION_MS) {
+function useTweenNumber(
+  initialValue: number,
+  durationMs = CROSSFADE_DURATION_MS,
+) {
   const [value, setValue] = useState(initialValue);
   const valueRef = useRef(initialValue);
   const startValueRef = useRef(initialValue);
@@ -759,7 +748,7 @@ function ContentApp() {
 
     while (
       dragState.samples.length > 1 &&
-      now - dragState.samples[0].time > VELOCITY_SAMPLE_MS
+      now - (dragState.samples[0]?.time ?? 0) > VELOCITY_SAMPLE_MS
     ) {
       dragState.samples.shift();
     }
@@ -982,7 +971,11 @@ function ContentApp() {
           )}
           style={surfaceStyle}
         >
-          <div className="absolute top-0" aria-hidden={!widgetState.collapsed} style={collapsedLayerStyle}>
+          <div
+            className="absolute top-0"
+            aria-hidden={!widgetState.collapsed}
+            style={collapsedLayerStyle}
+          >
             <CollapsedContent
               onStartDrag={startDragging}
               onExpand={handleExpand}
@@ -990,7 +983,11 @@ function ContentApp() {
             />
           </div>
 
-          <div className="absolute top-0 left-0" aria-hidden={widgetState.collapsed} style={expandedLayerStyle}>
+          <div
+            className="absolute top-0 left-0"
+            aria-hidden={widgetState.collapsed}
+            style={expandedLayerStyle}
+          >
             <ExpandedContent
               metadata={metadata}
               citation={citation}
