@@ -1,89 +1,104 @@
 import type { CitationSettings, PageMetadata } from "./types";
 
-function formatDate(dateString: string | null, format: "long" | "medium" = "medium") {
-  if (!dateString) {
-    return null;
+import {
+  buildCitationTemplateContext,
+  CITATION_TEMPLATE_PRESET_DEFINITIONS,
+  CITATION_TEMPLATE_PRESETS,
+  DEFAULT_CITATION_STYLE,
+  DEFAULT_CITATION_TEMPLATE,
+  isCitationStyle,
+  listCitationTemplateVariableValues,
+  parseCitationTemplate,
+  renderCitationTemplate,
+  stringifyCitationTemplate,
+  type CitationTemplateDiagnostic,
+} from "./citation-template";
+
+export type {
+  CitationTemplateDiagnostic,
+  CitationTemplateNode,
+  CitationTemplateParseResult,
+} from "./citation-template";
+export {
+  buildCitationTemplateContext,
+  CITATION_TEMPLATE_PRESET_DEFINITIONS,
+  CITATION_TEMPLATE_PRESETS,
+  CITATION_TEMPLATE_VARIABLES,
+  CUSTOM_TEMPLATE_HELP,
+  DEFAULT_CITATION_STYLE,
+  DEFAULT_CITATION_TEMPLATE,
+  isCitationStyle,
+  listCitationTemplateVariableValues,
+  parseCitationTemplate,
+  stringifyCitationTemplate,
+} from "./citation-template";
+
+export interface CitationGenerationResult {
+  citation: string;
+  diagnostics: CitationTemplateDiagnostic[];
+  usedFallback: boolean;
+}
+
+function getFallbackTemplate(settings: CitationSettings) {
+  if (settings.style !== "custom") {
+    return CITATION_TEMPLATE_PRESETS[settings.style];
   }
 
-  const date = new Date(dateString);
-  if (Number.isNaN(date.getTime())) {
-    return null;
+  return DEFAULT_CITATION_TEMPLATE;
+}
+
+export function generateCitationResult(
+  metadata: PageMetadata,
+  settings: CitationSettings,
+): CitationGenerationResult {
+  const context = buildCitationTemplateContext(metadata, settings);
+  const primaryResult = renderCitationTemplate(settings.customTemplate, context);
+
+  if (primaryResult.valid) {
+    return {
+      citation: primaryResult.text,
+      diagnostics: primaryResult.diagnostics,
+      usedFallback: false,
+    };
   }
 
-  return new Intl.DateTimeFormat("en-US", {
-    year: "numeric",
-    month: format === "long" ? "long" : "short",
-    day: "numeric",
-  }).format(date);
-}
-
-function cleanupCitation(text: string) {
-  return text
-    .replace(/\s+([,.;:])/g, "$1")
-    .replace(/([(])\s+/g, "$1")
-    .replace(/\s+([)\]])/g, "$1")
-    .replace(/\s{2,}/g, " ")
-    .replace(/\.\./g, ".")
-    .trim();
-}
-
-function quoteTitle(title: string, titleQuotes: boolean) {
-  return titleQuotes ? `"${title}"` : title;
-}
-
-function getCitationUrl(metadata: PageMetadata, settings: CitationSettings) {
-  return settings.preferCanonicalUrl && metadata.canonicalUrl ? metadata.canonicalUrl : metadata.url;
-}
-
-function getTitle(metadata: PageMetadata) {
-  return metadata.title.trim();
-}
-
-function formatAuthor(author: string | null, style: CitationSettings["style"]) {
-  if (!author) {
-    return null;
+  const fallbackTemplate = getFallbackTemplate(settings);
+  if (fallbackTemplate === settings.customTemplate) {
+    return {
+      citation: primaryResult.text,
+      diagnostics: primaryResult.diagnostics,
+      usedFallback: false,
+    };
   }
 
-  const compactAuthor = author.replace(/^by\s+/i, "").trim();
-  const parts = compactAuthor.split(/\s+/);
-  if (parts.length < 2) {
-    return compactAuthor;
-  }
+  const fallbackSettings: CitationSettings =
+    settings.style === "custom"
+      ? { ...settings, style: DEFAULT_CITATION_STYLE }
+      : settings;
+  const fallbackContext = buildCitationTemplateContext(metadata, fallbackSettings);
+  const fallbackResult = renderCitationTemplate(fallbackTemplate, fallbackContext);
 
-  if (style === "apa" || style === "harvard") {
-    const lastName = parts.at(-1);
-    const initials = parts.slice(0, -1).map(part => `${part.charAt(0).toUpperCase()}.`).join(" ");
-    return `${lastName}, ${initials}`;
-  }
-
-  return compactAuthor;
-}
-
-function renderCitation(metadata: PageMetadata, settings: CitationSettings) {
-  const title = getTitle(metadata);
-  const tokens: Record<string, string> = {
-    author: settings.includeAuthor ? formatAuthor(metadata.author, settings.style) ?? "" : "",
-    title,
-    titleQuoted: quoteTitle(title, settings.titleQuotes),
-    siteName: settings.includeSiteName ? metadata.siteName ?? "" : "",
-    publishedDate: settings.includePublishedDate ? formatDate(metadata.publishedDate, "medium") ?? "" : "",
-    accessDate: settings.includeAccessDate ? formatDate(metadata.accessedAt, "long") ?? "" : "",
-    url: getCitationUrl(metadata, settings),
+  return {
+    citation: fallbackResult.text,
+    diagnostics: [
+      ...primaryResult.diagnostics,
+      ...fallbackResult.diagnostics,
+      {
+        code: "template-fallback",
+        severity: "warning",
+        message:
+          "Current template is invalid. Using the fallback preset for rendering.",
+        start: 0,
+        end: settings.customTemplate.length,
+      },
+    ],
+    usedFallback: true,
   };
-
-  const withOptionalBlocks = settings.customTemplate.replace(/\[\[([\s\S]+?)\]\]/g, (_, block: string) => {
-    const tokenNames = Array.from(block.matchAll(/{{(\w+)}}/g), match => match[1] ?? "");
-    if (tokenNames.length === 0) {
-      return block;
-    }
-
-    return tokenNames.every(tokenName => tokens[tokenName]?.trim()) ? block : "";
-  });
-
-  const rendered = withOptionalBlocks.replace(/{{(\w+)}}/g, (_, tokenName: string) => tokens[tokenName] ?? "");
-  return cleanupCitation(rendered);
 }
 
-export function generateCitation(metadata: PageMetadata, settings: CitationSettings) {
-  return renderCitation(metadata, settings);
+export function generateCitation(
+  metadata: PageMetadata,
+  settings: CitationSettings,
+) {
+  return generateCitationResult(metadata, settings).citation;
 }

@@ -1,4 +1,5 @@
 import { DEFAULT_SETTINGS, DEFAULT_WIDGET_STATE, SETTINGS_STORAGE_KEY, WIDGET_STORAGE_KEY } from "./constants";
+import { isCitationStyle } from "./citation";
 import { getExtensionApi, getStorageArea } from "./extension-api";
 import type { CitationSettings, WidgetState } from "./types";
 
@@ -12,7 +13,10 @@ function normalizeSettings(value: unknown): CitationSettings {
   }
 
   return {
-    style: typeof value.style === "string" ? (value.style as CitationSettings["style"]) : DEFAULT_SETTINGS.style,
+    style:
+      typeof value.style === "string" && isCitationStyle(value.style)
+        ? value.style
+        : DEFAULT_SETTINGS.style,
     customTemplate: typeof value.customTemplate === "string" ? value.customTemplate : DEFAULT_SETTINGS.customTemplate,
     includeAuthor: typeof value.includeAuthor === "boolean" ? value.includeAuthor : DEFAULT_SETTINGS.includeAuthor,
     includeSiteName: typeof value.includeSiteName === "boolean" ? value.includeSiteName : DEFAULT_SETTINGS.includeSiteName,

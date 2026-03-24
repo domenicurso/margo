@@ -1,13 +1,13 @@
 import type { CitationSettings, PageMetadata, WidgetState } from "./types";
+import { DEFAULT_CITATION_STYLE, DEFAULT_CITATION_TEMPLATE } from "./citation";
 
 export const SETTINGS_STORAGE_KEY = "citationSettings";
 export const WIDGET_STORAGE_KEY = "widgetState";
 export const CONTENT_HOST_ID = "citer-extension-root";
 
 export const DEFAULT_SETTINGS: CitationSettings = {
-  style: "mla",
-  customTemplate:
-    "{{author}}[[. ]][[{{titleQuoted}}. ]][[{{siteName}}, ]][[{{publishedDate}}, ]][[Accessed {{accessDate}}. ]][[{{url}}]]",
+  style: DEFAULT_CITATION_STYLE,
+  customTemplate: DEFAULT_CITATION_TEMPLATE,
   includeAuthor: true,
   includeSiteName: true,
   includePublishedDate: true,
@@ -30,6 +30,3 @@ export const SAMPLE_METADATA: PageMetadata = {
   publishedDate: "2026-02-18T10:30:00.000Z",
   accessedAt: "2026-03-21T09:00:00.000Z",
 };
-
-export const CUSTOM_TEMPLATE_HELP =
-  "Use {{author}}, {{title}}, {{titleQuoted}}, {{siteName}}, {{publishedDate}}, {{accessDate}}, {{url}}. Wrap optional blocks in [[...]] so punctuation disappears when data is missing.";

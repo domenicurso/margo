@@ -22,5 +22,17 @@
 }
 
 body {
-  @apply bg-zinc-950;
+  @apply bg-zinc-950 font-sans text-zinc-100 antialiased;
+  color-scheme: dark;
+}
+
+body,
+#root {
+  min-height: 100vh;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
 }
